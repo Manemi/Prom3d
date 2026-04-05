@@ -11,6 +11,16 @@ const { BetaAnalyticsDataClient } = require('@google-analytics/data');
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.get('/debug', (req, res) => {
+  const b64 = process.env.GA4_KEY_BASE64 || '';
+  const decoded = Buffer.from(b64, 'base64').toString();
+  res.json({ 
+    b64_length: b64.length,
+    decoded_length: decoded.length,
+    has_client_email: decoded.includes('client_email'),
+    first_50: decoded.substring(0, 50)
+  });
+});
 
 // ============ КОНФІГ (заповни своїми ключами) ============
 const CONFIG = {
