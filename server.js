@@ -59,7 +59,7 @@ const ga4Client = new BetaAnalyticsDataClient({
 // ═══════════════════════════════
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Prom3D Ads Agent Server running 🚀' });
+  res.json({ status: 'ok', message: 'Prom3D Ads Agent Server running 🚀 v2' });
 });
 
 app.get('/api/ads/metrics', async (req, res) => {
