@@ -35,8 +35,9 @@ const adsClient = new GoogleAdsApi({
 });
 
 // ── GA4 клієнт ──
+const ga4Credentials = JSON.parse(process.env.GA4_KEY_JSON || '{}');
 const ga4Client = new BetaAnalyticsDataClient({
-  keyFilename: CONFIG.GA4_KEY_FILE,
+  credentials: ga4Credentials,
 });
 
 // ═══════════════════════════════════════════
