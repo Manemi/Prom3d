@@ -1,5 +1,5 @@
 // ============================================
-// Prom3D AI Ads Agent — Backend Server
+// Prom3D + Mercato AI Ads Agent — Backend Server
 // Node.js + Express + Google Ads API + GA4 MCP
 // ============================================
 
@@ -27,8 +27,12 @@ const CONFIG = {
   ADS_CLIENT_ID: '546482431037-pnc30oc3o04npp3k4oo1ifpf3is788c4.apps.googleusercontent.com',
   ADS_CLIENT_SECRET: process.env.ADS_CLIENT_SECRET || '',
   ADS_REFRESH_TOKEN: process.env.ADS_REFRESH_TOKEN || '',
+  // Prom3D
   ADS_CUSTOMER_ID: '5522488607',
   GA4_PROPERTY_ID: '503012124',
+  // Mercato
+  ADS_CUSTOMER_ID_MERCATO: process.env.ADS_CUSTOMER_ID_MERCATO || '4433061490',
+  GA4_PROPERTY_ID_MERCATO: process.env.GA4_PROPERTY_ID_MERCATO || '286553038',
 };
 
 // ── Google Ads клієнт ──
@@ -50,17 +54,32 @@ const ga4Credentials = {
   token_uri: 'https://oauth2.googleapis.com/token',
 };
 
-const ga4Client = new BetaAnalyticsDataClient({
-  credentials: ga4Credentials,
-});
+const ga4Client = new BetaAnalyticsDataClient({ credentials: ga4Credentials });
+
+// helper GA4
+async function ga4Report(propertyId, metrics, dimensions, orderBys, limit) {
+  const params = {
+    property: `properties/${propertyId}`,
+    dateRanges: [{ startDate: '7daysAgo', endDate: 'today' }],
+    metrics, dimensions,
+  };
+  if (orderBys) params.orderBys = orderBys;
+  if (limit) params.limit = limit;
+  const [response] = await ga4Client.runReport(params);
+  return response.rows || [];
+}
 
 // ═══════════════════════════════
-// РОУТИ
+// ЗАГАЛЬНІ РОУТИ
 // ═══════════════════════════════
 
 app.get('/', (req, res) => {
-  res.json({ status: 'ok', message: 'Prom3D Ads Agent Server running 🚀 v2' });
+  res.json({ status: 'ok', message: 'Prom3D + Mercato Ads Agent Server running 🚀 v3', shops: ['prom3d', 'mercato'] });
 });
+
+// ═══════════════════════════════
+// PROM3D — Google Ads
+// ═══════════════════════════════
 
 app.get('/api/ads/metrics', async (req, res) => {
   try {
@@ -80,7 +99,7 @@ app.get('/api/ads/metrics', async (req, res) => {
       cost: (c.metrics.cost_micros / 1_000_000).toFixed(2),
       avgCpc: (c.metrics.average_cpc / 1_000_000).toFixed(2),
     }));
-    res.json({ success: true, data });
+    res.json({ success: true, shop: 'prom3d', data });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
@@ -104,7 +123,7 @@ app.get('/api/ads/keywords', async (req, res) => {
       cost: (k.metrics.cost_micros / 1_000_000).toFixed(2),
       qualityScore: k.ad_group_criterion.quality_info?.quality_score || 0,
     }));
-    res.json({ success: true, data });
+    res.json({ success: true, shop: 'prom3d', data });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
@@ -126,7 +145,7 @@ app.get('/api/ads/search-terms', async (req, res) => {
       cost: (t.metrics.cost_micros / 1_000_000).toFixed(2),
       isSuggestedMinus: minusWords.some(mw => t.search_term_view.search_term.toLowerCase().includes(mw)),
     }));
-    res.json({ success: true, data });
+    res.json({ success: true, shop: 'prom3d', data });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
@@ -149,62 +168,183 @@ app.post('/api/ads/add-negative-keywords', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ═══════════════════════════════
+// PROM3D — GA4
+// ═══════════════════════════════
+
 app.get('/api/ga4/metrics', async (req, res) => {
   try {
-    const [response] = await ga4Client.runReport({
-      property: `properties/${CONFIG.GA4_PROPERTY_ID}`,
-      dateRanges: [{ startDate: '7daysAgo', endDate: 'today' }],
-      metrics: [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'bounceRate' }, { name: 'averageSessionDuration' }, { name: 'conversions' }, { name: 'screenPageViewsPerSession' }],
-      dimensions: [{ name: 'sessionDefaultChannelGrouping' }],
-    });
-    const data = response.rows?.map(row => ({
+    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID,
+      [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'bounceRate' }, { name: 'averageSessionDuration' }, { name: 'conversions' }, { name: 'screenPageViewsPerSession' }],
+      [{ name: 'sessionDefaultChannelGrouping' }]);
+    const data = rows.map(row => ({
       channel: row.dimensionValues[0].value,
       sessions: row.metricValues[0].value, users: row.metricValues[1].value,
       bounceRate: (parseFloat(row.metricValues[2].value) * 100).toFixed(1) + '%',
       avgDuration: Math.round(parseFloat(row.metricValues[3].value)) + 'с',
       conversions: row.metricValues[4].value,
       pagesPerSession: parseFloat(row.metricValues[5].value).toFixed(1),
-    })) || [];
-    res.json({ success: true, data });
+    }));
+    res.json({ success: true, shop: 'prom3d', data });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
 app.get('/api/ga4/pages', async (req, res) => {
   try {
-    const [response] = await ga4Client.runReport({
-      property: `properties/${CONFIG.GA4_PROPERTY_ID}`,
-      dateRanges: [{ startDate: '7daysAgo', endDate: 'today' }],
-      metrics: [{ name: 'screenPageViews' }, { name: 'bounceRate' }, { name: 'averageSessionDuration' }, { name: 'conversions' }],
-      dimensions: [{ name: 'pagePath' }],
-      orderBys: [{ metric: { metricName: 'screenPageViews' }, desc: true }],
-      limit: 10,
-    });
-    const data = response.rows?.map(row => ({
+    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID,
+      [{ name: 'screenPageViews' }, { name: 'bounceRate' }, { name: 'averageSessionDuration' }, { name: 'conversions' }],
+      [{ name: 'pagePath' }],
+      [{ metric: { metricName: 'screenPageViews' }, desc: true }], 10);
+    const data = rows.map(row => ({
       page: row.dimensionValues[0].value, views: row.metricValues[0].value,
       bounceRate: (parseFloat(row.metricValues[1].value) * 100).toFixed(1) + '%',
       avgDuration: Math.round(parseFloat(row.metricValues[2].value)) + 'с',
       conversions: row.metricValues[3].value,
-    })) || [];
-    res.json({ success: true, data });
+    }));
+    res.json({ success: true, shop: 'prom3d', data });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
 app.get('/api/ga4/devices', async (req, res) => {
   try {
-    const [response] = await ga4Client.runReport({
-      property: `properties/${CONFIG.GA4_PROPERTY_ID}`,
-      dateRanges: [{ startDate: '7daysAgo', endDate: 'today' }],
-      metrics: [{ name: 'sessions' }, { name: 'conversions' }, { name: 'totalRevenue' }],
-      dimensions: [{ name: 'deviceCategory' }],
-    });
-    const data = response.rows?.map(row => ({
+    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID,
+      [{ name: 'sessions' }, { name: 'conversions' }, { name: 'totalRevenue' }],
+      [{ name: 'deviceCategory' }]);
+    const data = rows.map(row => ({
       device: row.dimensionValues[0].value,
       sessions: row.metricValues[0].value, conversions: row.metricValues[1].value,
       revenue: parseFloat(row.metricValues[2].value).toFixed(2),
-    })) || [];
-    res.json({ success: true, data });
+    }));
+    res.json({ success: true, shop: 'prom3d', data });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
+
+// ═══════════════════════════════
+// MERCATO — Google Ads
+// ═══════════════════════════════
+
+app.get('/api/mercato/ads/metrics', async (req, res) => {
+  try {
+    const customer = adsClient.Customer({ customer_id: CONFIG.ADS_CUSTOMER_ID_MERCATO, refresh_token: CONFIG.ADS_REFRESH_TOKEN });
+    const campaigns = await customer.query(`
+      SELECT campaign.id, campaign.name, campaign.status,
+        metrics.impressions, metrics.clicks, metrics.ctr,
+        metrics.conversions, metrics.cost_micros, metrics.average_cpc
+      FROM campaign
+      WHERE segments.date DURING LAST_7_DAYS AND campaign.status = 'ENABLED'
+      ORDER BY metrics.impressions DESC LIMIT 10
+    `);
+    const data = campaigns.map(c => ({
+      id: c.campaign.id, name: c.campaign.name,
+      impressions: c.metrics.impressions, clicks: c.metrics.clicks,
+      ctr: (c.metrics.ctr * 100).toFixed(2), conversions: c.metrics.conversions,
+      cost: (c.metrics.cost_micros / 1_000_000).toFixed(2),
+      avgCpc: (c.metrics.average_cpc / 1_000_000).toFixed(2),
+    }));
+    res.json({ success: true, shop: 'mercato', data });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/mercato/ads/keywords', async (req, res) => {
+  try {
+    const customer = adsClient.Customer({ customer_id: CONFIG.ADS_CUSTOMER_ID_MERCATO, refresh_token: CONFIG.ADS_REFRESH_TOKEN });
+    const keywords = await customer.query(`
+      SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type,
+        ad_group_criterion.status, metrics.impressions, metrics.clicks,
+        metrics.ctr, metrics.conversions, metrics.cost_micros,
+        ad_group_criterion.quality_info.quality_score
+      FROM keyword_view WHERE segments.date DURING LAST_7_DAYS
+      ORDER BY metrics.impressions DESC LIMIT 20
+    `);
+    const data = keywords.map(k => ({
+      keyword: k.ad_group_criterion.keyword.text,
+      matchType: k.ad_group_criterion.keyword.match_type,
+      status: k.ad_group_criterion.status,
+      impressions: k.metrics.impressions, clicks: k.metrics.clicks,
+      ctr: (k.metrics.ctr * 100).toFixed(2), conversions: k.metrics.conversions,
+      cost: (k.metrics.cost_micros / 1_000_000).toFixed(2),
+      qualityScore: k.ad_group_criterion.quality_info?.quality_score || 0,
+    }));
+    res.json({ success: true, shop: 'mercato', data });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/mercato/ads/search-terms', async (req, res) => {
+  try {
+    const customer = adsClient.Customer({ customer_id: CONFIG.ADS_CUSTOMER_ID_MERCATO, refresh_token: CONFIG.ADS_REFRESH_TOKEN });
+    const terms = await customer.query(`
+      SELECT search_term_view.search_term, search_term_view.status,
+        metrics.impressions, metrics.clicks, metrics.conversions, metrics.cost_micros
+      FROM search_term_view
+      WHERE segments.date DURING LAST_7_DAYS AND metrics.impressions > 5
+      ORDER BY metrics.impressions DESC LIMIT 50
+    `);
+    const minusWords = ['безкоштовно','free','своїми руками','diy','скачати','доставка безкоштовна'];
+    const data = terms.map(t => ({
+      term: t.search_term_view.search_term,
+      impressions: t.metrics.impressions, clicks: t.metrics.clicks,
+      conversions: t.metrics.conversions,
+      cost: (t.metrics.cost_micros / 1_000_000).toFixed(2),
+      isSuggestedMinus: minusWords.some(mw => t.search_term_view.search_term.toLowerCase().includes(mw)),
+    }));
+    res.json({ success: true, shop: 'mercato', data });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ═══════════════════════════════
+// MERCATO — GA4
+// ═══════════════════════════════
+
+app.get('/api/mercato/ga4/metrics', async (req, res) => {
+  try {
+    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID_MERCATO,
+      [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'bounceRate' }, { name: 'averageSessionDuration' }, { name: 'conversions' }, { name: 'screenPageViewsPerSession' }],
+      [{ name: 'sessionDefaultChannelGrouping' }]);
+    const data = rows.map(row => ({
+      channel: row.dimensionValues[0].value,
+      sessions: row.metricValues[0].value, users: row.metricValues[1].value,
+      bounceRate: (parseFloat(row.metricValues[2].value) * 100).toFixed(1) + '%',
+      avgDuration: Math.round(parseFloat(row.metricValues[3].value)) + 'с',
+      conversions: row.metricValues[4].value,
+      pagesPerSession: parseFloat(row.metricValues[5].value).toFixed(1),
+    }));
+    res.json({ success: true, shop: 'mercato', data });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/mercato/ga4/pages', async (req, res) => {
+  try {
+    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID_MERCATO,
+      [{ name: 'screenPageViews' }, { name: 'bounceRate' }, { name: 'averageSessionDuration' }, { name: 'conversions' }],
+      [{ name: 'pagePath' }],
+      [{ metric: { metricName: 'screenPageViews' }, desc: true }], 10);
+    const data = rows.map(row => ({
+      page: row.dimensionValues[0].value, views: row.metricValues[0].value,
+      bounceRate: (parseFloat(row.metricValues[1].value) * 100).toFixed(1) + '%',
+      avgDuration: Math.round(parseFloat(row.metricValues[2].value)) + 'с',
+      conversions: row.metricValues[3].value,
+    }));
+    res.json({ success: true, shop: 'mercato', data });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/mercato/ga4/devices', async (req, res) => {
+  try {
+    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID_MERCATO,
+      [{ name: 'sessions' }, { name: 'conversions' }, { name: 'totalRevenue' }],
+      [{ name: 'deviceCategory' }]);
+    const data = rows.map(row => ({
+      device: row.dimensionValues[0].value,
+      sessions: row.metricValues[0].value, conversions: row.metricValues[1].value,
+      revenue: parseFloat(row.metricValues[2].value).toFixed(2),
+    }));
+    res.json({ success: true, shop: 'mercato', data });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// ═══════════════════════════════
+// СПІЛЬНІ РОУТИ
+// ═══════════════════════════════
 
 app.get('/api/cross-analysis', async (req, res) => {
   try {
@@ -213,19 +353,38 @@ app.get('/api/cross-analysis', async (req, res) => {
       fetch(`http://localhost:${PORT}/api/ga4/metrics`).then(r => r.json()),
       fetch(`http://localhost:${PORT}/api/ga4/devices`).then(r => r.json()),
     ]);
-    res.json({ success: true, ads: adsRes.value?.data || [], ga4: ga4Res.value?.data || [], devices: devicesRes.value?.data || [], timestamp: new Date().toISOString() });
+    res.json({ success: true, shop: 'prom3d', ads: adsRes.value?.data || [], ga4: ga4Res.value?.data || [], devices: devicesRes.value?.data || [], timestamp: new Date().toISOString() });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+app.get('/api/mercato/cross-analysis', async (req, res) => {
+  try {
+    const [adsRes, ga4Res, devicesRes] = await Promise.allSettled([
+      fetch(`http://localhost:${PORT}/api/mercato/ads/metrics`).then(r => r.json()),
+      fetch(`http://localhost:${PORT}/api/mercato/ga4/metrics`).then(r => r.json()),
+      fetch(`http://localhost:${PORT}/api/mercato/ga4/devices`).then(r => r.json()),
+    ]);
+    res.json({ success: true, shop: 'mercato', ads: adsRes.value?.data || [], ga4: ga4Res.value?.data || [], devices: devicesRes.value?.data || [], timestamp: new Date().toISOString() });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
 app.get('/api/auto-audit', async (req, res) => {
   const alerts = [];
   try {
+    // Prom3D audit
     const adsData = await fetch(`http://localhost:${PORT}/api/ads/metrics`).then(r => r.json());
     const totalCost = adsData.data?.reduce((sum, c) => sum + parseFloat(c.cost), 0) || 0;
-    if (totalCost / 7 > 690 * 1.15) alerts.push({ type: 'danger', source: 'Ads', message: `Перевитрата! Факт ${(totalCost/7).toFixed(0)}₴/день` });
+    if (totalCost / 7 > 690 * 1.15) alerts.push({ type: 'danger', shop: 'prom3d', source: 'Ads', message: `Prom3D перевитрата! Факт ${(totalCost/7).toFixed(0)}грн/день` });
     const ga4Data = await fetch(`http://localhost:${PORT}/api/ga4/pages`).then(r => r.json());
-    ga4Data.data?.filter(p => parseFloat(p.bounceRate) > 70).forEach(p => alerts.push({ type: 'warning', source: 'GA4', message: `Відмова ${p.bounceRate} на ${p.page}` }));
-    adsData.data?.filter(c => parseFloat(c.ctr) < 1.5).forEach(c => alerts.push({ type: 'warning', source: 'Ads', message: `Низький CTR ${c.ctr}% у "${c.name}"`, campaignId: c.id }));
+    ga4Data.data?.filter(p => parseFloat(p.bounceRate) > 70).forEach(p => alerts.push({ type: 'warning', shop: 'prom3d', source: 'GA4', message: `Prom3D відмова ${p.bounceRate} на ${p.page}` }));
+    adsData.data?.filter(c => parseFloat(c.ctr) < 1.5).forEach(c => alerts.push({ type: 'warning', shop: 'prom3d', source: 'Ads', message: `Prom3D низький CTR ${c.ctr}% у "${c.name}"`, campaignId: c.id }));
+    // Mercato audit
+    const mAdsData = await fetch(`http://localhost:${PORT}/api/mercato/ads/metrics`).then(r => r.json());
+    const mCost = mAdsData.data?.reduce((sum, c) => sum + parseFloat(c.cost), 0) || 0;
+    if (mCost / 7 > 500 * 1.15) alerts.push({ type: 'danger', shop: 'mercato', source: 'Ads', message: `Mercato перевитрата! Факт ${(mCost/7).toFixed(0)}грн/день` });
+    const mGa4Data = await fetch(`http://localhost:${PORT}/api/mercato/ga4/pages`).then(r => r.json());
+    mGa4Data.data?.filter(p => parseFloat(p.bounceRate) > 70).forEach(p => alerts.push({ type: 'warning', shop: 'mercato', source: 'GA4', message: `Mercato відмова ${p.bounceRate} на ${p.page}` }));
+    mAdsData.data?.filter(c => parseFloat(c.ctr) < 1.5).forEach(c => alerts.push({ type: 'warning', shop: 'mercato', source: 'Ads', message: `Mercato низький CTR ${c.ctr}% у "${c.name}"`, campaignId: c.id }));
     res.json({ success: true, alerts, timestamp: new Date().toISOString() });
   } catch (err) { res.status(500).json({ success: false, error: err.message, alerts }); }
 });
@@ -233,11 +392,11 @@ app.get('/api/auto-audit', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`
-  ╔══════════════════════════════════════╗
-  ║   Prom3D AI Ads Agent Server         ║
-  ║   Running on port ${PORT}               ║
-  ║   http://localhost:${PORT}              ║
-  ╚══════════════════════════════════════╝
+  ╔══════════════════════════════════════════╗
+  ║   Prom3D + Mercato Ads Agent Server      ║
+  ║   Running on port ${PORT}                   ║
+  ║   http://localhost:${PORT}                  ║
+  ╚══════════════════════════════════════════╝
   `);
 });
 
