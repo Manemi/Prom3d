@@ -75,14 +75,6 @@ function parsePeriod(query) {
   return { startDate: '7daysAgo', endDate: 'today' };
 }
 
-async function ga4Report(propertyId, metrics, dimensions, orderBys, limit, dateRange) {
-  const range = dateRange || { startDate: '7daysAgo', endDate: 'today' };
-  const params = { property: `properties/${propertyId}`, dateRanges: [range], metrics, dimensions };
-  if (orderBys) params.orderBys = orderBys;
-  if (limit) params.limit = limit;
-  const [response] = await ga4Client.runReport(params);
-  return response.rows || [];
-}
 // ═══════════════════════════════
 // ЗАГАЛЬНІ РОУТИ
 // ═══════════════════════════════
