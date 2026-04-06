@@ -57,10 +57,69 @@ const ga4Credentials = {
 const ga4Client = new BetaAnalyticsDataClient({ credentials: ga4Credentials });
 
 // helper GA4
-async function ga4Report(propertyId, metrics, dimensions, orderBys, limit) {
+function parsePeriod(query) {
+  const p = query.period || 'last7';
+  const today = new Date();
+  const fmt = d => d.toISOString().split('T')[0];
+  if (p === 'today')      return { startDate: 'today',     endDate: 'today' };
+  if (p === 'yesterday')  return { startDate: 'yesterday', endDate: 'yesterday' };
+  if (p === 'week')       return { startDate: '7daysAgo',  endDate: 'today' };
+  if (p === 'month')      return { startDate: '30daysAgo', endDate: 'today' };
+  if (p === 'last_month') {
+    const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const last  = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { startDate: fmt(first), endDate: fmt(last) };
+  }
+  if (p === 'custom' && query.startDate && query.endDate)
+    return { startDate: query.startDate, endDate: query.endDate };
+  return { startDate: '7daysAgo', endDate: 'today' };
+}
+
+async function ga4Report(propertyId, metrics, dimensions, orderBys, limit, dateRange) {
+  const range = dateRange || { startDate: '7daysAgo', endDate: 'today' };
+  const params = { property: `properties/${propertyId}`, dateRanges: [range], metrics, dimensions };
+  if (orderBys) params.orderBys = orderBys;
+  if (limit) params.limit = limit;
+  const [response] = await ga4Client.runReport(params);
+  return response.rows || [];
+}
+// ═══════════════════════════════
+// ЗАГАЛЬНІ РОУТИ
+// ═══════════════════════════════
+// ============================================================
+// ВСТАВТЕ ЦЕЙ КОД У ВАШ server.js — ЗАМІСТЬ поточних роутів
+// Зміни:
+//  1. ga4Report приймає startDate/endDate з query params
+//  2. Нові зведені ендпоінти /api/ga4/mercato та /api/ga4/prom3d
+//  3. Підтримка ?period=today|yesterday|week|month|last_month|custom
+// ============================================================
+
+// ── Замінити поточний ga4Report helper ──────────────────────
+function parsePeriod(query) {
+  const p = query.period || 'last7';
+  const today = new Date();
+  const fmt = d => d.toISOString().split('T')[0];
+
+  if (p === 'today')      return { startDate: 'today',    endDate: 'today' };
+  if (p === 'yesterday')  return { startDate: 'yesterday', endDate: 'yesterday' };
+  if (p === 'week')       return { startDate: '7daysAgo',  endDate: 'today' };
+  if (p === 'month')      return { startDate: '30daysAgo', endDate: 'today' };
+  if (p === 'last_month') {
+    const first = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const last  = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { startDate: fmt(first), endDate: fmt(last) };
+  }
+  if (p === 'custom' && query.startDate && query.endDate) {
+    return { startDate: query.startDate, endDate: query.endDate };
+  }
+  return { startDate: '7daysAgo', endDate: 'today' }; // default
+}
+
+async function ga4Report(propertyId, metrics, dimensions, orderBys, limit, dateRange) {
+  const range = dateRange || { startDate: '7daysAgo', endDate: 'today' };
   const params = {
     property: `properties/${propertyId}`,
-    dateRanges: [{ startDate: '7daysAgo', endDate: 'today' }],
+    dateRanges: [range],
     metrics, dimensions,
   };
   if (orderBys) params.orderBys = orderBys;
@@ -69,10 +128,175 @@ async function ga4Report(propertyId, metrics, dimensions, orderBys, limit) {
   return response.rows || [];
 }
 
-// ═══════════════════════════════
-// ЗАГАЛЬНІ РОУТИ
-// ═══════════════════════════════
+// ── Новий зведений ендпоінт для Mercato ──────────────────────
+// GET /api/ga4/mercato?period=month
+// GET /api/ga4/mercato?period=custom&startDate=2025-03-01&endDate=2025-03-31
+app.get('/api/ga4/mercato', async (req, res) => {
+  try {
+    const dateRange = parsePeriod(req.query);
+    const propertyId = CONFIG.GA4_PROPERTY_ID_MERCATO;
 
+    const [channelRows, pagesRows, totalsRows] = await Promise.all([
+      // Канали трафіку
+      ga4Report(propertyId,
+        [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'bounceRate' },
+         { name: 'averageSessionDuration' }, { name: 'conversions' },
+         { name: 'screenPageViewsPerSession' }],
+        [{ name: 'sessionDefaultChannelGrouping' }],
+        [{ metric: { metricName: 'sessions' }, desc: true }],
+        10, dateRange),
+
+      // Топ сторінки
+      ga4Report(propertyId,
+        [{ name: 'screenPageViews' }, { name: 'bounceRate' },
+         { name: 'averageSessionDuration' }, { name: 'conversions' }],
+        [{ name: 'pagePath' }],
+        [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+        10, dateRange),
+
+      // Загальні метрики (без розбивки по каналах)
+      ga4Report(propertyId,
+        [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'newUsers' },
+         { name: 'bounceRate' }, { name: 'averageSessionDuration' },
+         { name: 'screenPageViewsPerSession' }, { name: 'ecommercePurchases' },
+         { name: 'purchaseRevenue' }, { name: 'conversions' }],
+        [], null, null, dateRange),
+    ]);
+
+    // Totals row
+    const t = totalsRows[0]?.metricValues || [];
+    const v = (i) => parseFloat(t[i]?.value || '0');
+
+    res.json({
+      success: true, shop: 'mercato',
+      period: dateRange,
+      // Зведені метрики
+      sessions:         Math.round(v(0)),
+      users:            Math.round(v(1)),
+      newUsers:         Math.round(v(2)),
+      bounceRate:       parseFloat((v(3) * 100).toFixed(1)),
+      avgDuration:      Math.round(v(4)),
+      pagesPerSession:  parseFloat(v(5).toFixed(1)),
+      transactions:     Math.round(v(6)),
+      revenue:          parseFloat(v(7).toFixed(0)),
+      conversions:      Math.round(v(8)),
+      // Деталі по каналах
+      channelRows: channelRows.map(row => ({
+        channel:        row.dimensionValues[0].value,
+        sessions:       parseInt(row.metricValues[0].value),
+        users:          parseInt(row.metricValues[1].value),
+        bounceRate:     parseFloat((parseFloat(row.metricValues[2].value) * 100).toFixed(1)),
+        avgDuration:    Math.round(parseFloat(row.metricValues[3].value)),
+        conversions:    parseInt(row.metricValues[4].value),
+        pagesPerSession: parseFloat(parseFloat(row.metricValues[5].value).toFixed(1)),
+      })),
+      // Топ сторінки
+      topPages: pagesRows.map(row => ({
+        page:        row.dimensionValues[0].value,
+        views:       parseInt(row.metricValues[0].value),
+        bounceRate:  parseFloat((parseFloat(row.metricValues[1].value) * 100).toFixed(1)),
+        avgDuration: Math.round(parseFloat(row.metricValues[2].value)),
+        conversions: parseInt(row.metricValues[3].value),
+      })),
+    });
+  } catch(err) {
+    console.error('GA4 Mercato error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Новий зведений ендпоінт для Prom3D ───────────────────────
+// GET /api/ga4/prom3d?period=month
+app.get('/api/ga4/prom3d', async (req, res) => {
+  try {
+    const dateRange = parsePeriod(req.query);
+    const propertyId = CONFIG.GA4_PROPERTY_ID;
+
+    const [channelRows, pagesRows, totalsRows, eventsRows] = await Promise.all([
+      // Канали трафіку
+      ga4Report(propertyId,
+        [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'bounceRate' },
+         { name: 'averageSessionDuration' }, { name: 'conversions' },
+         { name: 'screenPageViewsPerSession' }],
+        [{ name: 'sessionDefaultChannelGrouping' }],
+        [{ metric: { metricName: 'sessions' }, desc: true }],
+        10, dateRange),
+
+      // Топ сторінки
+      ga4Report(propertyId,
+        [{ name: 'screenPageViews' }, { name: 'bounceRate' },
+         { name: 'averageSessionDuration' }, { name: 'conversions' }],
+        [{ name: 'pagePath' }],
+        [{ metric: { metricName: 'screenPageViews' }, desc: true }],
+        10, dateRange),
+
+      // Загальні метрики
+      ga4Report(propertyId,
+        [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'newUsers' },
+         { name: 'bounceRate' }, { name: 'averageSessionDuration' },
+         { name: 'screenPageViewsPerSession' }, { name: 'conversions' }],
+        [], null, null, dateRange),
+
+      // ПОДІЇ — щоб знайти реальні форми/дзвінки
+      // Показує всі conversion events з їх кількістю
+      ga4Report(propertyId,
+        [{ name: 'eventCount' }, { name: 'conversions' }],
+        [{ name: 'eventName' }],
+        [{ metric: { metricName: 'eventCount' }, desc: true }],
+        20, dateRange),
+    ]);
+
+    const t = totalsRows[0]?.metricValues || [];
+    const v = (i) => parseFloat(t[i]?.value || '0');
+
+    // Конверсійні події — реальні дані без вигадок
+    const conversionEvents = eventsRows
+      .map(row => ({
+        eventName:   row.dimensionValues[0].value,
+        eventCount:  parseInt(row.metricValues[0].value),
+        conversions: parseInt(row.metricValues[1].value),
+      }))
+      .filter(e => e.conversions > 0 || ['generate_lead','form_submit','click','contact'].some(k => e.eventName.includes(k)));
+
+    res.json({
+      success: true, shop: 'prom3d',
+      period: dateRange,
+      sessions:         Math.round(v(0)),
+      users:            Math.round(v(1)),
+      newUsers:         Math.round(v(2)),
+      bounceRate:       parseFloat((v(3) * 100).toFixed(1)),
+      avgDuration:      Math.round(v(4)),
+      pagesPerSession:  parseFloat(v(5).toFixed(1)),
+      conversions:      Math.round(v(6)),  // всі конверсії
+      // Реальні конверсійні події — без вигадок
+      conversionEvents,
+      channelRows: channelRows.map(row => ({
+        channel:        row.dimensionValues[0].value,
+        sessions:       parseInt(row.metricValues[0].value),
+        users:          parseInt(row.metricValues[1].value),
+        bounceRate:     parseFloat((parseFloat(row.metricValues[2].value) * 100).toFixed(1)),
+        avgDuration:    Math.round(parseFloat(row.metricValues[3].value)),
+        conversions:    parseInt(row.metricValues[4].value),
+        pagesPerSession: parseFloat(parseFloat(row.metricValues[5].value).toFixed(1)),
+      })),
+      topPages: pagesRows.map(row => ({
+        page:        row.dimensionValues[0].value,
+        views:       parseInt(row.metricValues[0].value),
+        bounceRate:  parseFloat((parseFloat(row.metricValues[1].value) * 100).toFixed(1)),
+        avgDuration: Math.round(parseFloat(row.metricValues[2].value)),
+        conversions: parseInt(row.metricValues[3].value),
+      })),
+    });
+  } catch(err) {
+    console.error('GA4 Prom3D error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ── Оновити існуючі ендпоінти щоб теж приймали period ────────
+// Замінити в /api/ga4/metrics, /api/mercato/ga4/metrics і т.д.:
+// const rows = await ga4Report(ID, metrics, dims, ...);
+// → const rows = await ga4Report(ID, metrics, dims, orderBys, limit, parsePeriod(req.query));
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Prom3D + Mercato Ads Agent Server running 🚀 v3', shops: ['prom3d', 'mercato'] });
 });
