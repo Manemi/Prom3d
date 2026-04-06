@@ -161,6 +161,14 @@ app.get('/api/ads/search-terms', async (req, res) => {
   } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
+
+app.post('/api/ads/enable-campaign', async (req, res) => {
+  try {
+    const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID);
+    await c.campaigns.update([{resource_name:`customers/${CONFIG.ADS_CUSTOMER_ID}/campaigns/${req.body.campaignId}`,status:'ENABLED'}]);
+    res.json({success:true, message:'Кампанію запущено'});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
 app.post('/api/ads/pause-campaign', async (req, res) => {
   try {
     const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID);
@@ -195,6 +203,14 @@ app.get('/api/mercato/ads/search-terms', async (req, res) => {
   } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
+
+app.post('/api/mercato/ads/enable-campaign', async (req, res) => {
+  try {
+    const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID_MERCATO);
+    await c.campaigns.update([{resource_name:`customers/${CONFIG.ADS_CUSTOMER_ID_MERCATO}/campaigns/${req.body.campaignId}`,status:'ENABLED'}]);
+    res.json({success:true, message:'Кампанію запущено'});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
 app.post('/api/mercato/ads/pause-campaign', async (req, res) => {
   try {
     const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID_MERCATO);
