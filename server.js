@@ -1,6 +1,5 @@
 // ============================================
-// Prom3D + Mercato AI Ads Agent — Backend Server
-// Node.js + Express + Google Ads API + GA4
+// Prom3D + Mercato AI Ads Agent — Backend v5
 // ============================================
 
 const express = require('express');
@@ -12,42 +11,44 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ============ КОНФІГ ============
 const CONFIG = {
-  ADS_DEVELOPER_TOKEN: 'uMvPr7R4QQvCjYfGV25gcQ',
-  ADS_CLIENT_ID: '546482431037-pnc30oc3o04npp3k4oo1ifpf3is788c4.apps.googleusercontent.com',
-  ADS_CLIENT_SECRET: process.env.ADS_CLIENT_SECRET || '',
-  ADS_REFRESH_TOKEN: process.env.ADS_REFRESH_TOKEN || '',
-  // Prom3D
-  ADS_CUSTOMER_ID: '5522488607',
-  GA4_PROPERTY_ID: '503012124',
-  // Mercato
-  ADS_CUSTOMER_ID_MERCATO: process.env.ADS_CUSTOMER_ID_MERCATO || '4433061490',
-  GA4_PROPERTY_ID_MERCATO: process.env.GA4_PROPERTY_ID_MERCATO || '286553038',
+  ADS_DEVELOPER_TOKEN:     'uMvPr7R4QQvCjYfGV25gcQ',
+  ADS_CLIENT_ID:           '546482431037-pnc30oc3o04npp3k4oo1ifpf3is788c4.apps.googleusercontent.com',
+  ADS_CLIENT_SECRET:       process.env.ADS_CLIENT_SECRET || '',
+  ADS_REFRESH_TOKEN:       process.env.ADS_REFRESH_TOKEN || '',
+  ADS_MCC_ID:              '5522488607',
+  ADS_CUSTOMER_ID:         '2420492760',
+  GA4_PROPERTY_ID:         '503012124',
+  ADS_CUSTOMER_ID_MERCATO: '4433061490',
+  GA4_PROPERTY_ID_MERCATO: '286553038',
 };
 
-// ── Google Ads клієнт ──
 const adsClient = new GoogleAdsApi({
-  client_id: CONFIG.ADS_CLIENT_ID,
-  client_secret: CONFIG.ADS_CLIENT_SECRET,
-  developer_token: CONFIG.ADS_DEVELOPER_TOKEN,
+  client_id:        CONFIG.ADS_CLIENT_ID,
+  client_secret:    CONFIG.ADS_CLIENT_SECRET,
+  developer_token:  CONFIG.ADS_DEVELOPER_TOKEN,
 });
 
-// ── GA4 клієнт ──
+function makeCustomer(customerId) {
+  return adsClient.Customer({
+    customer_id:       customerId,
+    login_customer_id: CONFIG.ADS_MCC_ID,
+    refresh_token:     CONFIG.ADS_REFRESH_TOKEN,
+  });
+}
+
 const ga4Credentials = {
-  type: 'service_account',
-  project_id: process.env.GA4_PROJECT_ID || 'prom3d-agent',
-  private_key_id: process.env.GA4_PRIVATE_KEY_ID || '',
-  private_key: (process.env.GA4_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-  client_email: process.env.GA4_CLIENT_EMAIL || '',
-  client_id: process.env.GA4_CLIENT_ID || '',
-  auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-  token_uri: 'https://oauth2.googleapis.com/token',
+  type:            'service_account',
+  project_id:      process.env.GA4_PROJECT_ID      || 'prom3d-agent',
+  private_key_id:  process.env.GA4_PRIVATE_KEY_ID  || '',
+  private_key:     (process.env.GA4_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+  client_email:    process.env.GA4_CLIENT_EMAIL     || '',
+  client_id:       process.env.GA4_CLIENT_ID        || '',
+  auth_uri:        'https://accounts.google.com/o/oauth2/auth',
+  token_uri:       'https://oauth2.googleapis.com/token',
 };
 
 const ga4Client = new BetaAnalyticsDataClient({ credentials: ga4Credentials });
-
-// ── helpers ──────────────────────────────────────────────────
 
 function parsePeriod(query) {
   const p = query.period || 'week';
@@ -62,684 +63,181 @@ function parsePeriod(query) {
     const last  = new Date(today.getFullYear(), today.getMonth(), 0);
     return { startDate: fmt(first), endDate: fmt(last) };
   }
-  if (p === 'custom' && query.startDate && query.endDate) {
+  if (p === 'custom' && query.startDate && query.endDate)
     return { startDate: query.startDate, endDate: query.endDate };
-  }
   return { startDate: '7daysAgo', endDate: 'today' };
 }
 
 async function ga4Report(propertyId, metrics, dimensions, orderBys, limit, dateRange) {
   const range = dateRange || { startDate: '7daysAgo', endDate: 'today' };
-  const params = {
-    property: `properties/${propertyId}`,
-    dateRanges: [range],
-    metrics,
-    dimensions,
-  };
+  const params = { property: `properties/${propertyId}`, dateRanges: [range], metrics, dimensions };
   if (orderBys) params.orderBys = orderBys;
   if (limit)    params.limit    = limit;
   const [response] = await ga4Client.runReport(params);
   return response.rows || [];
 }
 
-// ═══════════════════════════════
-// ЗАГАЛЬНІ РОУТИ
-// ═══════════════════════════════
+// ── ROUTES ──────────────────────────────────────────────────
 
-app.get('/', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'Prom3D + Mercato Ads Agent Server running 🚀 v4',
-    shops: ['prom3d', 'mercato'],
-  });
-});
+app.get('/', (req, res) => res.json({
+  status: 'ok', message: 'Prom3D + Mercato Ads Agent Server running v5',
+  shops: ['prom3d', 'mercato'],
+}));
 
-app.get('/debug', (req, res) => {
-  res.json({
-    has_client_email: !!process.env.GA4_CLIENT_EMAIL,
-    has_private_key:  !!process.env.GA4_PRIVATE_KEY,
-    client_email: process.env.GA4_CLIENT_EMAIL || 'NOT SET',
-    project_id:   process.env.GA4_PROJECT_ID   || 'NOT SET',
-  });
-});
+app.get('/debug', (req, res) => res.json({
+  has_refresh_token:  !!process.env.ADS_REFRESH_TOKEN,
+  has_client_secret:  !!process.env.ADS_CLIENT_SECRET,
+  has_client_email:   !!process.env.GA4_CLIENT_EMAIL,
+  has_private_key:    !!process.env.GA4_PRIVATE_KEY,
+  client_email:       process.env.GA4_CLIENT_EMAIL || 'NOT SET',
+  mcc_id:             CONFIG.ADS_MCC_ID,
+}));
 
-// ═══════════════════════════════
-// НОВІ ЗВЕДЕНІ GA4 ЕНДПОІНТИ
-// підтримують ?period=today|yesterday|week|month|last_month|custom
-// ═══════════════════════════════
-
-// GET /api/ga4/mercato?period=week
+// ── GA4 Mercato ──────────────────────────────────────────────
 app.get('/api/ga4/mercato', async (req, res) => {
   try {
-    const dateRange  = parsePeriod(req.query);
-    const propertyId = CONFIG.GA4_PROPERTY_ID_MERCATO;
-
-    const [channelRows, pagesRows, totalsRows] = await Promise.all([
-
-      ga4Report(propertyId,
-        [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'bounceRate' },
-         { name: 'averageSessionDuration' }, { name: 'conversions' },
-         { name: 'screenPageViewsPerSession' }],
-        [{ name: 'sessionDefaultChannelGrouping' }],
-        [{ metric: { metricName: 'sessions' }, desc: true }],
-        10, dateRange),
-
-      ga4Report(propertyId,
-        [{ name: 'screenPageViews' }, { name: 'bounceRate' },
-         { name: 'averageSessionDuration' }, { name: 'conversions' }],
-        [{ name: 'pagePath' }],
-        [{ metric: { metricName: 'screenPageViews' }, desc: true }],
-        10, dateRange),
-
-      ga4Report(propertyId,
-        [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'newUsers' },
-         { name: 'bounceRate' }, { name: 'averageSessionDuration' },
-         { name: 'screenPageViewsPerSession' }, { name: 'ecommercePurchases' },
-         { name: 'purchaseRevenue' }, { name: 'conversions' }],
-        [], null, null, dateRange),
+    const dr = parsePeriod(req.query);
+    const pid = CONFIG.GA4_PROPERTY_ID_MERCATO;
+    const [ch, pg, tot] = await Promise.all([
+      ga4Report(pid, [{name:'sessions'},{name:'activeUsers'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'},{name:'screenPageViewsPerSession'}], [{name:'sessionDefaultChannelGrouping'}], [{metric:{metricName:'sessions'},desc:true}], 10, dr),
+      ga4Report(pid, [{name:'screenPageViews'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'}], [{name:'pagePath'}], [{metric:{metricName:'screenPageViews'},desc:true}], 10, dr),
+      ga4Report(pid, [{name:'sessions'},{name:'totalUsers'},{name:'newUsers'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'screenPageViewsPerSession'},{name:'ecommercePurchases'},{name:'purchaseRevenue'},{name:'conversions'}], [], null, null, dr),
     ]);
-
-    const t = totalsRows[0]?.metricValues || [];
+    const t = tot[0]?.metricValues || [];
     const v = i => parseFloat(t[i]?.value || '0');
-
     res.json({
-      success: true, shop: 'mercato', period: dateRange,
-      sessions:        Math.round(v(0)),
-      users:           Math.round(v(1)),
-      newUsers:        Math.round(v(2)),
-      bounceRate:      parseFloat((v(3) * 100).toFixed(1)),
-      avgDuration:     Math.round(v(4)),
-      pagesPerSession: parseFloat(v(5).toFixed(1)),
-      transactions:    Math.round(v(6)),
-      revenue:         parseFloat(v(7).toFixed(0)),
-      conversions:     Math.round(v(8)),
-      channelRows: channelRows.map(row => ({
-        channel:         row.dimensionValues[0].value,
-        sessions:        parseInt(row.metricValues[0].value),
-        users:           parseInt(row.metricValues[1].value),
-        bounceRate:      parseFloat((parseFloat(row.metricValues[2].value) * 100).toFixed(1)),
-        avgDuration:     Math.round(parseFloat(row.metricValues[3].value)),
-        conversions:     parseInt(row.metricValues[4].value),
-        pagesPerSession: parseFloat(parseFloat(row.metricValues[5].value).toFixed(1)),
-      })),
-      topPages: pagesRows.map(row => ({
-        page:        row.dimensionValues[0].value,
-        views:       parseInt(row.metricValues[0].value),
-        bounceRate:  parseFloat((parseFloat(row.metricValues[1].value) * 100).toFixed(1)),
-        avgDuration: Math.round(parseFloat(row.metricValues[2].value)),
-        conversions: parseInt(row.metricValues[3].value),
-      })),
+      success:true, shop:'mercato', period:dr,
+      sessions:Math.round(v(0)), users:Math.round(v(1)), newUsers:Math.round(v(2)),
+      bounceRate:parseFloat((v(3)*100).toFixed(1)), avgDuration:Math.round(v(4)),
+      pagesPerSession:parseFloat(v(5).toFixed(1)), transactions:Math.round(v(6)),
+      revenue:parseFloat(v(7).toFixed(0)), conversions:Math.round(v(8)),
+      channelRows: ch.map(r=>({channel:r.dimensionValues[0].value, sessions:parseInt(r.metricValues[0].value), users:parseInt(r.metricValues[1].value), bounceRate:parseFloat((parseFloat(r.metricValues[2].value)*100).toFixed(1)), avgDuration:Math.round(parseFloat(r.metricValues[3].value)), conversions:parseInt(r.metricValues[4].value), pagesPerSession:parseFloat(parseFloat(r.metricValues[5].value).toFixed(1))})),
+      topPages: pg.map(r=>({page:r.dimensionValues[0].value, views:parseInt(r.metricValues[0].value), bounceRate:parseFloat((parseFloat(r.metricValues[1].value)*100).toFixed(1)), avgDuration:Math.round(parseFloat(r.metricValues[2].value)), conversions:parseInt(r.metricValues[3].value)})),
     });
-  } catch (err) {
-    console.error('GA4 Mercato error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
-// GET /api/ga4/prom3d?period=week
+// ── GA4 Prom3D ──────────────────────────────────────────────
 app.get('/api/ga4/prom3d', async (req, res) => {
   try {
-    const dateRange  = parsePeriod(req.query);
-    const propertyId = CONFIG.GA4_PROPERTY_ID;
-
-    const [channelRows, pagesRows, totalsRows, eventsRows] = await Promise.all([
-
-      ga4Report(propertyId,
-        [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'bounceRate' },
-         { name: 'averageSessionDuration' }, { name: 'conversions' },
-         { name: 'screenPageViewsPerSession' }],
-        [{ name: 'sessionDefaultChannelGrouping' }],
-        [{ metric: { metricName: 'sessions' }, desc: true }],
-        10, dateRange),
-
-      ga4Report(propertyId,
-        [{ name: 'screenPageViews' }, { name: 'bounceRate' },
-         { name: 'averageSessionDuration' }, { name: 'conversions' }],
-        [{ name: 'pagePath' }],
-        [{ metric: { metricName: 'screenPageViews' }, desc: true }],
-        10, dateRange),
-
-      ga4Report(propertyId,
-        [{ name: 'sessions' }, { name: 'totalUsers' }, { name: 'newUsers' },
-         { name: 'bounceRate' }, { name: 'averageSessionDuration' },
-         { name: 'screenPageViewsPerSession' }, { name: 'conversions' }],
-        [], null, null, dateRange),
-
-      // Реальні конверсійні події (форми, дзвінки тощо)
-      ga4Report(propertyId,
-        [{ name: 'eventCount' }, { name: 'conversions' }],
-        [{ name: 'eventName' }],
-        [{ metric: { metricName: 'eventCount' }, desc: true }],
-        20, dateRange),
+    const dr = parsePeriod(req.query);
+    const pid = CONFIG.GA4_PROPERTY_ID;
+    const [ch, pg, tot, ev] = await Promise.all([
+      ga4Report(pid, [{name:'sessions'},{name:'activeUsers'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'},{name:'screenPageViewsPerSession'}], [{name:'sessionDefaultChannelGrouping'}], [{metric:{metricName:'sessions'},desc:true}], 10, dr),
+      ga4Report(pid, [{name:'screenPageViews'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'}], [{name:'pagePath'}], [{metric:{metricName:'screenPageViews'},desc:true}], 10, dr),
+      ga4Report(pid, [{name:'sessions'},{name:'totalUsers'},{name:'newUsers'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'screenPageViewsPerSession'},{name:'conversions'}], [], null, null, dr),
+      ga4Report(pid, [{name:'eventCount'},{name:'conversions'}], [{name:'eventName'}], [{metric:{metricName:'eventCount'},desc:true}], 20, dr),
     ]);
-
-    const t = totalsRows[0]?.metricValues || [];
+    const t = tot[0]?.metricValues || [];
     const v = i => parseFloat(t[i]?.value || '0');
-
-    const conversionEvents = eventsRows
-      .map(row => ({
-        eventName:   row.dimensionValues[0].value,
-        eventCount:  parseInt(row.metricValues[0].value),
-        conversions: parseInt(row.metricValues[1].value),
-      }))
-      .filter(e => e.conversions > 0 ||
-        ['generate_lead', 'form_submit', 'click', 'contact'].some(k => e.eventName.includes(k)));
-
+    const conversionEvents = ev.map(r=>({eventName:r.dimensionValues[0].value, eventCount:parseInt(r.metricValues[0].value), conversions:parseInt(r.metricValues[1].value)})).filter(e=>e.conversions>0||['generate_lead','form_submit','click','contact'].some(k=>e.eventName.includes(k)));
     res.json({
-      success: true, shop: 'prom3d', period: dateRange,
-      sessions:        Math.round(v(0)),
-      users:           Math.round(v(1)),
-      newUsers:        Math.round(v(2)),
-      bounceRate:      parseFloat((v(3) * 100).toFixed(1)),
-      avgDuration:     Math.round(v(4)),
-      pagesPerSession: parseFloat(v(5).toFixed(1)),
-      conversions:     Math.round(v(6)),
+      success:true, shop:'prom3d', period:dr,
+      sessions:Math.round(v(0)), users:Math.round(v(1)), newUsers:Math.round(v(2)),
+      bounceRate:parseFloat((v(3)*100).toFixed(1)), avgDuration:Math.round(v(4)),
+      pagesPerSession:parseFloat(v(5).toFixed(1)), conversions:Math.round(v(6)),
       conversionEvents,
-      channelRows: channelRows.map(row => ({
-        channel:         row.dimensionValues[0].value,
-        sessions:        parseInt(row.metricValues[0].value),
-        users:           parseInt(row.metricValues[1].value),
-        bounceRate:      parseFloat((parseFloat(row.metricValues[2].value) * 100).toFixed(1)),
-        avgDuration:     Math.round(parseFloat(row.metricValues[3].value)),
-        conversions:     parseInt(row.metricValues[4].value),
-        pagesPerSession: parseFloat(parseFloat(row.metricValues[5].value).toFixed(1)),
-      })),
-      topPages: pagesRows.map(row => ({
-        page:        row.dimensionValues[0].value,
-        views:       parseInt(row.metricValues[0].value),
-        bounceRate:  parseFloat((parseFloat(row.metricValues[1].value) * 100).toFixed(1)),
-        avgDuration: Math.round(parseFloat(row.metricValues[2].value)),
-        conversions: parseInt(row.metricValues[3].value),
-      })),
+      channelRows: ch.map(r=>({channel:r.dimensionValues[0].value, sessions:parseInt(r.metricValues[0].value), users:parseInt(r.metricValues[1].value), bounceRate:parseFloat((parseFloat(r.metricValues[2].value)*100).toFixed(1)), avgDuration:Math.round(parseFloat(r.metricValues[3].value)), conversions:parseInt(r.metricValues[4].value), pagesPerSession:parseFloat(parseFloat(r.metricValues[5].value).toFixed(1))})),
+      topPages: pg.map(r=>({page:r.dimensionValues[0].value, views:parseInt(r.metricValues[0].value), bounceRate:parseFloat((parseFloat(r.metricValues[1].value)*100).toFixed(1)), avgDuration:Math.round(parseFloat(r.metricValues[2].value)), conversions:parseInt(r.metricValues[3].value)})),
     });
-  } catch (err) {
-    console.error('GA4 Prom3D error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
-// ═══════════════════════════════
-// PROM3D — Google Ads
-// ═══════════════════════════════
-
+// ── Prom3D Ads ──────────────────────────────────────────────
 app.get('/api/ads/metrics', async (req, res) => {
   try {
-    const customer = adsClient.Customer({
-      customer_id: CONFIG.ADS_CUSTOMER_ID,
-      refresh_token: CONFIG.ADS_REFRESH_TOKEN,
-    });
-    const campaigns = await customer.query(`
-      SELECT campaign.id, campaign.name, campaign.status,
-        metrics.impressions, metrics.clicks, metrics.ctr,
-        metrics.conversions, metrics.cost_micros, metrics.average_cpc
-      FROM campaign
-      WHERE segments.date DURING LAST_7_DAYS AND campaign.status = 'ENABLED'
-      ORDER BY metrics.impressions DESC LIMIT 10
-    `);
-    const data = campaigns.map(c => ({
-      id:          c.campaign.id,
-      name:        c.campaign.name,
-      impressions: c.metrics.impressions,
-      clicks:      c.metrics.clicks,
-      ctr:         (c.metrics.ctr * 100).toFixed(2),
-      conversions: c.metrics.conversions,
-      cost:        (c.metrics.cost_micros / 1_000_000).toFixed(2),
-      avgCpc:      (c.metrics.average_cpc / 1_000_000).toFixed(2),
-    }));
-    res.json({ success: true, shop: 'prom3d', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/api/ads/keywords', async (req, res) => {
-  try {
-    const customer = adsClient.Customer({
-      customer_id: CONFIG.ADS_CUSTOMER_ID,
-      refresh_token: CONFIG.ADS_REFRESH_TOKEN,
-    });
-    const keywords = await customer.query(`
-      SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type,
-        ad_group_criterion.status, metrics.impressions, metrics.clicks,
-        metrics.ctr, metrics.conversions, metrics.cost_micros,
-        ad_group_criterion.quality_info.quality_score
-      FROM keyword_view WHERE segments.date DURING LAST_7_DAYS
-      ORDER BY metrics.impressions DESC LIMIT 20
-    `);
-    const data = keywords.map(k => ({
-      keyword:      k.ad_group_criterion.keyword.text,
-      matchType:    k.ad_group_criterion.keyword.match_type,
-      status:       k.ad_group_criterion.status,
-      impressions:  k.metrics.impressions,
-      clicks:       k.metrics.clicks,
-      ctr:          (k.metrics.ctr * 100).toFixed(2),
-      conversions:  k.metrics.conversions,
-      cost:         (k.metrics.cost_micros / 1_000_000).toFixed(2),
-      qualityScore: k.ad_group_criterion.quality_info?.quality_score || 0,
-    }));
-    res.json({ success: true, shop: 'prom3d', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID);
+    const rows = await c.query(`SELECT campaign.id,campaign.name,campaign.status,metrics.impressions,metrics.clicks,metrics.ctr,metrics.conversions,metrics.cost_micros,metrics.average_cpc FROM campaign WHERE segments.date DURING LAST_7_DAYS AND campaign.status='ENABLED' ORDER BY metrics.impressions DESC LIMIT 10`);
+    res.json({success:true, shop:'prom3d', data:rows.map(r=>({id:r.campaign.id, name:r.campaign.name, impressions:r.metrics.impressions, clicks:r.metrics.clicks, ctr:(r.metrics.ctr*100).toFixed(2), conversions:r.metrics.conversions, cost:(r.metrics.cost_micros/1e6).toFixed(2), avgCpc:(r.metrics.average_cpc/1e6).toFixed(2)}))});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
 app.get('/api/ads/search-terms', async (req, res) => {
   try {
-    const customer = adsClient.Customer({
-      customer_id: CONFIG.ADS_CUSTOMER_ID,
-      refresh_token: CONFIG.ADS_REFRESH_TOKEN,
-    });
-    const terms = await customer.query(`
-      SELECT search_term_view.search_term, search_term_view.status,
-        metrics.impressions, metrics.clicks, metrics.conversions, metrics.cost_micros
-      FROM search_term_view
-      WHERE segments.date DURING LAST_7_DAYS AND metrics.impressions > 5
-      ORDER BY metrics.impressions DESC LIMIT 50
-    `);
-    const minusWords = ['безкоштовно', 'free', 'своїми руками', 'diy', 'скачати', 'thingiverse', 'stl', 'курс', 'навчання'];
-    const data = terms.map(t => ({
-      term:              t.search_term_view.search_term,
-      impressions:       t.metrics.impressions,
-      clicks:            t.metrics.clicks,
-      conversions:       t.metrics.conversions,
-      cost:              (t.metrics.cost_micros / 1_000_000).toFixed(2),
-      isSuggestedMinus:  minusWords.some(mw => t.search_term_view.search_term.toLowerCase().includes(mw)),
-    }));
-    res.json({ success: true, shop: 'prom3d', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID);
+    const rows = await c.query(`SELECT search_term_view.search_term,metrics.impressions,metrics.clicks,metrics.conversions,metrics.cost_micros FROM search_term_view WHERE segments.date DURING LAST_7_DAYS AND metrics.impressions>5 ORDER BY metrics.impressions DESC LIMIT 50`);
+    const minus = ['безкоштовно','free','diy','скачати','thingiverse','stl','курс','навчання'];
+    res.json({success:true, shop:'prom3d', data:rows.map(r=>({term:r.search_term_view.search_term, impressions:r.metrics.impressions, clicks:r.metrics.clicks, conversions:r.metrics.conversions, cost:(r.metrics.cost_micros/1e6).toFixed(2), isSuggestedMinus:minus.some(m=>r.search_term_view.search_term.toLowerCase().includes(m))}))});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
 app.post('/api/ads/pause-campaign', async (req, res) => {
   try {
-    const { campaignId } = req.body;
-    const customer = adsClient.Customer({
-      customer_id: CONFIG.ADS_CUSTOMER_ID,
-      refresh_token: CONFIG.ADS_REFRESH_TOKEN,
-    });
-    await customer.campaigns.update([{
-      resource_name: `customers/${CONFIG.ADS_CUSTOMER_ID}/campaigns/${campaignId}`,
-      status: 'PAUSED',
-    }]);
-    res.json({ success: true, message: `Кампанія ${campaignId} призупинена` });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID);
+    await c.campaigns.update([{resource_name:`customers/${CONFIG.ADS_CUSTOMER_ID}/campaigns/${req.body.campaignId}`,status:'PAUSED'}]);
+    res.json({success:true, message:`Кампанія призупинена`});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
 app.post('/api/ads/add-negative-keywords', async (req, res) => {
   try {
-    const { keywords, campaignId } = req.body;
-    const customer = adsClient.Customer({
-      customer_id: CONFIG.ADS_CUSTOMER_ID,
-      refresh_token: CONFIG.ADS_REFRESH_TOKEN,
-    });
-    const negativeKeywords = keywords.map(kw => ({
-      campaign: `customers/${CONFIG.ADS_CUSTOMER_ID}/campaigns/${campaignId}`,
-      keyword:  { text: kw, match_type: 'BROAD' },
-    }));
-    await customer.campaignCriteria.create(negativeKeywords);
-    res.json({ success: true, message: `Додано ${keywords.length} мінус-слів` });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID);
+    await c.campaignCriteria.create(req.body.keywords.map(kw=>({campaign:`customers/${CONFIG.ADS_CUSTOMER_ID}/campaigns/${req.body.campaignId}`,keyword:{text:kw,match_type:'BROAD'}})));
+    res.json({success:true, message:`Додано ${req.body.keywords.length} мінус-слів`});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
-// ═══════════════════════════════
-// PROM3D — GA4 (старі ендпоінти, сумісність)
-// ═══════════════════════════════
-
-app.get('/api/ga4/metrics', async (req, res) => {
-  try {
-    const dateRange = parsePeriod(req.query);
-    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID,
-      [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'bounceRate' },
-       { name: 'averageSessionDuration' }, { name: 'conversions' },
-       { name: 'screenPageViewsPerSession' }],
-      [{ name: 'sessionDefaultChannelGrouping' }],
-      null, null, dateRange);
-    const data = rows.map(row => ({
-      channel:        row.dimensionValues[0].value,
-      sessions:       row.metricValues[0].value,
-      users:          row.metricValues[1].value,
-      bounceRate:     (parseFloat(row.metricValues[2].value) * 100).toFixed(1) + '%',
-      avgDuration:    Math.round(parseFloat(row.metricValues[3].value)) + 'с',
-      conversions:    row.metricValues[4].value,
-      pagesPerSession: parseFloat(row.metricValues[5].value).toFixed(1),
-    }));
-    res.json({ success: true, shop: 'prom3d', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/api/ga4/pages', async (req, res) => {
-  try {
-    const dateRange = parsePeriod(req.query);
-    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID,
-      [{ name: 'screenPageViews' }, { name: 'bounceRate' },
-       { name: 'averageSessionDuration' }, { name: 'conversions' }],
-      [{ name: 'pagePath' }],
-      [{ metric: { metricName: 'screenPageViews' }, desc: true }],
-      10, dateRange);
-    const data = rows.map(row => ({
-      page:        row.dimensionValues[0].value,
-      views:       row.metricValues[0].value,
-      bounceRate:  (parseFloat(row.metricValues[1].value) * 100).toFixed(1) + '%',
-      avgDuration: Math.round(parseFloat(row.metricValues[2].value)) + 'с',
-      conversions: row.metricValues[3].value,
-    }));
-    res.json({ success: true, shop: 'prom3d', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/api/ga4/devices', async (req, res) => {
-  try {
-    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID,
-      [{ name: 'sessions' }, { name: 'conversions' }, { name: 'totalRevenue' }],
-      [{ name: 'deviceCategory' }]);
-    const data = rows.map(row => ({
-      device:      row.dimensionValues[0].value,
-      sessions:    row.metricValues[0].value,
-      conversions: row.metricValues[1].value,
-      revenue:     parseFloat(row.metricValues[2].value).toFixed(2),
-    }));
-    res.json({ success: true, shop: 'prom3d', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ═══════════════════════════════
-// MERCATO — Google Ads
-// ═══════════════════════════════
-
+// ── Mercato Ads ──────────────────────────────────────────────
 app.get('/api/mercato/ads/metrics', async (req, res) => {
   try {
-    const customer = adsClient.Customer({
-      customer_id: CONFIG.ADS_CUSTOMER_ID_MERCATO,
-      refresh_token: CONFIG.ADS_REFRESH_TOKEN,
-    });
-    const campaigns = await customer.query(`
-      SELECT campaign.id, campaign.name, campaign.status,
-        metrics.impressions, metrics.clicks, metrics.ctr,
-        metrics.conversions, metrics.cost_micros, metrics.average_cpc
-      FROM campaign
-      WHERE segments.date DURING LAST_7_DAYS AND campaign.status = 'ENABLED'
-      ORDER BY metrics.impressions DESC LIMIT 10
-    `);
-    const data = campaigns.map(c => ({
-      id:          c.campaign.id,
-      name:        c.campaign.name,
-      impressions: c.metrics.impressions,
-      clicks:      c.metrics.clicks,
-      ctr:         (c.metrics.ctr * 100).toFixed(2),
-      conversions: c.metrics.conversions,
-      cost:        (c.metrics.cost_micros / 1_000_000).toFixed(2),
-      avgCpc:      (c.metrics.average_cpc / 1_000_000).toFixed(2),
-    }));
-    res.json({ success: true, shop: 'mercato', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/api/mercato/ads/keywords', async (req, res) => {
-  try {
-    const customer = adsClient.Customer({
-      customer_id: CONFIG.ADS_CUSTOMER_ID_MERCATO,
-      refresh_token: CONFIG.ADS_REFRESH_TOKEN,
-    });
-    const keywords = await customer.query(`
-      SELECT ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type,
-        ad_group_criterion.status, metrics.impressions, metrics.clicks,
-        metrics.ctr, metrics.conversions, metrics.cost_micros,
-        ad_group_criterion.quality_info.quality_score
-      FROM keyword_view WHERE segments.date DURING LAST_7_DAYS
-      ORDER BY metrics.impressions DESC LIMIT 20
-    `);
-    const data = keywords.map(k => ({
-      keyword:      k.ad_group_criterion.keyword.text,
-      matchType:    k.ad_group_criterion.keyword.match_type,
-      status:       k.ad_group_criterion.status,
-      impressions:  k.metrics.impressions,
-      clicks:       k.metrics.clicks,
-      ctr:          (k.metrics.ctr * 100).toFixed(2),
-      conversions:  k.metrics.conversions,
-      cost:         (k.metrics.cost_micros / 1_000_000).toFixed(2),
-      qualityScore: k.ad_group_criterion.quality_info?.quality_score || 0,
-    }));
-    res.json({ success: true, shop: 'mercato', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID_MERCATO);
+    const rows = await c.query(`SELECT campaign.id,campaign.name,campaign.status,metrics.impressions,metrics.clicks,metrics.ctr,metrics.conversions,metrics.cost_micros,metrics.average_cpc FROM campaign WHERE segments.date DURING LAST_7_DAYS AND campaign.status='ENABLED' ORDER BY metrics.impressions DESC LIMIT 10`);
+    res.json({success:true, shop:'mercato', data:rows.map(r=>({id:r.campaign.id, name:r.campaign.name, impressions:r.metrics.impressions, clicks:r.metrics.clicks, ctr:(r.metrics.ctr*100).toFixed(2), conversions:r.metrics.conversions, cost:(r.metrics.cost_micros/1e6).toFixed(2), avgCpc:(r.metrics.average_cpc/1e6).toFixed(2)}))});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
 app.get('/api/mercato/ads/search-terms', async (req, res) => {
   try {
-    const customer = adsClient.Customer({
-      customer_id: CONFIG.ADS_CUSTOMER_ID_MERCATO,
-      refresh_token: CONFIG.ADS_REFRESH_TOKEN,
-    });
-    const terms = await customer.query(`
-      SELECT search_term_view.search_term, search_term_view.status,
-        metrics.impressions, metrics.clicks, metrics.conversions, metrics.cost_micros
-      FROM search_term_view
-      WHERE segments.date DURING LAST_7_DAYS AND metrics.impressions > 5
-      ORDER BY metrics.impressions DESC LIMIT 50
-    `);
-    const minusWords = ['безкоштовно', 'free', 'своїми руками', 'diy', 'скачати', 'доставка безкоштовна'];
-    const data = terms.map(t => ({
-      term:             t.search_term_view.search_term,
-      impressions:      t.metrics.impressions,
-      clicks:           t.metrics.clicks,
-      conversions:      t.metrics.conversions,
-      cost:             (t.metrics.cost_micros / 1_000_000).toFixed(2),
-      isSuggestedMinus: minusWords.some(mw => t.search_term_view.search_term.toLowerCase().includes(mw)),
-    }));
-    res.json({ success: true, shop: 'mercato', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID_MERCATO);
+    const rows = await c.query(`SELECT search_term_view.search_term,metrics.impressions,metrics.clicks,metrics.conversions,metrics.cost_micros FROM search_term_view WHERE segments.date DURING LAST_7_DAYS AND metrics.impressions>5 ORDER BY metrics.impressions DESC LIMIT 50`);
+    const minus = ['безкоштовно','free','diy','скачати'];
+    res.json({success:true, shop:'mercato', data:rows.map(r=>({term:r.search_term_view.search_term, impressions:r.metrics.impressions, clicks:r.metrics.clicks, conversions:r.metrics.conversions, cost:(r.metrics.cost_micros/1e6).toFixed(2), isSuggestedMinus:minus.some(m=>r.search_term_view.search_term.toLowerCase().includes(m))}))});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
 app.post('/api/mercato/ads/pause-campaign', async (req, res) => {
   try {
-    const { campaignId } = req.body;
-    const customer = adsClient.Customer({
-      customer_id: CONFIG.ADS_CUSTOMER_ID_MERCATO,
-      refresh_token: CONFIG.ADS_REFRESH_TOKEN,
-    });
-    await customer.campaigns.update([{
-      resource_name: `customers/${CONFIG.ADS_CUSTOMER_ID_MERCATO}/campaigns/${campaignId}`,
-      status: 'PAUSED',
-    }]);
-    res.json({ success: true, message: `Кампанія ${campaignId} призупинена` });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID_MERCATO);
+    await c.campaigns.update([{resource_name:`customers/${CONFIG.ADS_CUSTOMER_ID_MERCATO}/campaigns/${req.body.campaignId}`,status:'PAUSED'}]);
+    res.json({success:true, message:`Кампанія призупинена`});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
 app.post('/api/mercato/ads/add-negative-keywords', async (req, res) => {
   try {
-    const { keywords, campaignId } = req.body;
-    const customer = adsClient.Customer({
-      customer_id: CONFIG.ADS_CUSTOMER_ID_MERCATO,
-      refresh_token: CONFIG.ADS_REFRESH_TOKEN,
-    });
-    const negativeKeywords = keywords.map(kw => ({
-      campaign: `customers/${CONFIG.ADS_CUSTOMER_ID_MERCATO}/campaigns/${campaignId}`,
-      keyword:  { text: kw, match_type: 'BROAD' },
-    }));
-    await customer.campaignCriteria.create(negativeKeywords);
-    res.json({ success: true, message: `Додано ${keywords.length} мінус-слів` });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID_MERCATO);
+    await c.campaignCriteria.create(req.body.keywords.map(kw=>({campaign:`customers/${CONFIG.ADS_CUSTOMER_ID_MERCATO}/campaigns/${req.body.campaignId}`,keyword:{text:kw,match_type:'BROAD'}})));
+    res.json({success:true, message:`Додано ${req.body.keywords.length} мінус-слів`});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
-// ═══════════════════════════════
-// MERCATO — GA4 (старі ендпоінти, сумісність)
-// ═══════════════════════════════
-
-app.get('/api/mercato/ga4/metrics', async (req, res) => {
+// ── GA4 legacy ──────────────────────────────────────────────
+app.get('/api/ga4/metrics', async (req,res) => {
   try {
-    const dateRange = parsePeriod(req.query);
-    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID_MERCATO,
-      [{ name: 'sessions' }, { name: 'activeUsers' }, { name: 'bounceRate' },
-       { name: 'averageSessionDuration' }, { name: 'conversions' },
-       { name: 'screenPageViewsPerSession' }],
-      [{ name: 'sessionDefaultChannelGrouping' }],
-      null, null, dateRange);
-    const data = rows.map(row => ({
-      channel:         row.dimensionValues[0].value,
-      sessions:        row.metricValues[0].value,
-      users:           row.metricValues[1].value,
-      bounceRate:      (parseFloat(row.metricValues[2].value) * 100).toFixed(1) + '%',
-      avgDuration:     Math.round(parseFloat(row.metricValues[3].value)) + 'с',
-      conversions:     row.metricValues[4].value,
-      pagesPerSession: parseFloat(row.metricValues[5].value).toFixed(1),
-    }));
-    res.json({ success: true, shop: 'mercato', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID,[{name:'sessions'},{name:'activeUsers'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'},{name:'screenPageViewsPerSession'}],[{name:'sessionDefaultChannelGrouping'}],null,null,parsePeriod(req.query));
+    res.json({success:true,shop:'prom3d',data:rows.map(r=>({channel:r.dimensionValues[0].value,sessions:r.metricValues[0].value,users:r.metricValues[1].value,bounceRate:(parseFloat(r.metricValues[2].value)*100).toFixed(1)+'%',avgDuration:Math.round(parseFloat(r.metricValues[3].value))+'с',conversions:r.metricValues[4].value,pagesPerSession:parseFloat(r.metricValues[5].value).toFixed(1)}))});
+  } catch(err){res.status(500).json({success:false,error:err.message});}
 });
-
-app.get('/api/mercato/ga4/pages', async (req, res) => {
+app.get('/api/ga4/pages', async (req,res) => {
   try {
-    const dateRange = parsePeriod(req.query);
-    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID_MERCATO,
-      [{ name: 'screenPageViews' }, { name: 'bounceRate' },
-       { name: 'averageSessionDuration' }, { name: 'conversions' }],
-      [{ name: 'pagePath' }],
-      [{ metric: { metricName: 'screenPageViews' }, desc: true }],
-      10, dateRange);
-    const data = rows.map(row => ({
-      page:        row.dimensionValues[0].value,
-      views:       row.metricValues[0].value,
-      bounceRate:  (parseFloat(row.metricValues[1].value) * 100).toFixed(1) + '%',
-      avgDuration: Math.round(parseFloat(row.metricValues[2].value)) + 'с',
-      conversions: row.metricValues[3].value,
-    }));
-    res.json({ success: true, shop: 'mercato', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID,[{name:'screenPageViews'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'}],[{name:'pagePath'}],[{metric:{metricName:'screenPageViews'},desc:true}],10,parsePeriod(req.query));
+    res.json({success:true,shop:'prom3d',data:rows.map(r=>({page:r.dimensionValues[0].value,views:r.metricValues[0].value,bounceRate:(parseFloat(r.metricValues[1].value)*100).toFixed(1)+'%',avgDuration:Math.round(parseFloat(r.metricValues[2].value))+'с',conversions:r.metricValues[3].value}))});
+  } catch(err){res.status(500).json({success:false,error:err.message});}
 });
-
-app.get('/api/mercato/ga4/devices', async (req, res) => {
+app.get('/api/mercato/ga4/metrics', async (req,res) => {
   try {
-    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID_MERCATO,
-      [{ name: 'sessions' }, { name: 'conversions' }, { name: 'totalRevenue' }],
-      [{ name: 'deviceCategory' }]);
-    const data = rows.map(row => ({
-      device:      row.dimensionValues[0].value,
-      sessions:    row.metricValues[0].value,
-      conversions: row.metricValues[1].value,
-      revenue:     parseFloat(row.metricValues[2].value).toFixed(2),
-    }));
-    res.json({ success: true, shop: 'mercato', data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID_MERCATO,[{name:'sessions'},{name:'activeUsers'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'},{name:'screenPageViewsPerSession'}],[{name:'sessionDefaultChannelGrouping'}],null,null,parsePeriod(req.query));
+    res.json({success:true,shop:'mercato',data:rows.map(r=>({channel:r.dimensionValues[0].value,sessions:r.metricValues[0].value,users:r.metricValues[1].value,bounceRate:(parseFloat(r.metricValues[2].value)*100).toFixed(1)+'%',avgDuration:Math.round(parseFloat(r.metricValues[3].value))+'с',conversions:r.metricValues[4].value,pagesPerSession:parseFloat(r.metricValues[5].value).toFixed(1)}))});
+  } catch(err){res.status(500).json({success:false,error:err.message});}
 });
-
-// ═══════════════════════════════
-// СПІЛЬНІ РОУТИ
-// ═══════════════════════════════
-
-app.get('/api/cross-analysis', async (req, res) => {
+app.get('/api/mercato/ga4/pages', async (req,res) => {
   try {
-    const [adsRes, ga4Res, devicesRes] = await Promise.allSettled([
-      fetch(`http://localhost:${PORT}/api/ads/metrics`).then(r => r.json()),
-      fetch(`http://localhost:${PORT}/api/ga4/metrics`).then(r => r.json()),
-      fetch(`http://localhost:${PORT}/api/ga4/devices`).then(r => r.json()),
-    ]);
-    res.json({
-      success: true, shop: 'prom3d',
-      ads:     adsRes.value?.data     || [],
-      ga4:     ga4Res.value?.data     || [],
-      devices: devicesRes.value?.data || [],
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID_MERCATO,[{name:'screenPageViews'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'}],[{name:'pagePath'}],[{metric:{metricName:'screenPageViews'},desc:true}],10,parsePeriod(req.query));
+    res.json({success:true,shop:'mercato',data:rows.map(r=>({page:r.dimensionValues[0].value,views:r.metricValues[0].value,bounceRate:(parseFloat(r.metricValues[1].value)*100).toFixed(1)+'%',avgDuration:Math.round(parseFloat(r.metricValues[2].value))+'с',conversions:r.metricValues[3].value}))});
+  } catch(err){res.status(500).json({success:false,error:err.message});}
 });
 
-app.get('/api/mercato/cross-analysis', async (req, res) => {
-  try {
-    const [adsRes, ga4Res, devicesRes] = await Promise.allSettled([
-      fetch(`http://localhost:${PORT}/api/mercato/ads/metrics`).then(r => r.json()),
-      fetch(`http://localhost:${PORT}/api/mercato/ga4/metrics`).then(r => r.json()),
-      fetch(`http://localhost:${PORT}/api/mercato/ga4/devices`).then(r => r.json()),
-    ]);
-    res.json({
-      success: true, shop: 'mercato',
-      ads:     adsRes.value?.data     || [],
-      ga4:     ga4Res.value?.data     || [],
-      devices: devicesRes.value?.data || [],
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-app.get('/api/auto-audit', async (req, res) => {
-  const alerts = [];
-  try {
-    const [adsData, ga4PagesData, mAdsData, mGa4PagesData] = await Promise.allSettled([
-      fetch(`http://localhost:${PORT}/api/ads/metrics`).then(r => r.json()),
-      fetch(`http://localhost:${PORT}/api/ga4/pages`).then(r => r.json()),
-      fetch(`http://localhost:${PORT}/api/mercato/ads/metrics`).then(r => r.json()),
-      fetch(`http://localhost:${PORT}/api/mercato/ga4/pages`).then(r => r.json()),
-    ]);
-
-    // Prom3D
-    const ads  = adsData.value?.data || [];
-    const totalCost = ads.reduce((s, c) => s + parseFloat(c.cost), 0);
-    if (totalCost / 7 > 690 * 1.15)
-      alerts.push({ type: 'danger', shop: 'prom3d', source: 'Ads', message: `Prom3D перевитрата! ${(totalCost/7).toFixed(0)} грн/день` });
-    (ga4PagesData.value?.data || [])
-      .filter(p => parseFloat(p.bounceRate) > 70)
-      .forEach(p => alerts.push({ type: 'warning', shop: 'prom3d', source: 'GA4', message: `Відмова ${p.bounceRate} на ${p.page}` }));
-    ads.filter(c => parseFloat(c.ctr) < 1.5)
-      .forEach(c => alerts.push({ type: 'warning', shop: 'prom3d', source: 'Ads', message: `Низький CTR ${c.ctr}% у "${c.name}"`, campaignId: c.id }));
-
-    // Mercato
-    const mAds = mAdsData.value?.data || [];
-    const mCost = mAds.reduce((s, c) => s + parseFloat(c.cost), 0);
-    if (mCost / 7 > 500 * 1.15)
-      alerts.push({ type: 'danger', shop: 'mercato', source: 'Ads', message: `Mercato перевитрата! ${(mCost/7).toFixed(0)} грн/день` });
-    (mGa4PagesData.value?.data || [])
-      .filter(p => parseFloat(p.bounceRate) > 70)
-      .forEach(p => alerts.push({ type: 'warning', shop: 'mercato', source: 'GA4', message: `Відмова ${p.bounceRate} на ${p.page}` }));
-    mAds.filter(c => parseFloat(c.ctr) < 1.5)
-      .forEach(c => alerts.push({ type: 'warning', shop: 'mercato', source: 'Ads', message: `Низький CTR ${c.ctr}% у "${c.name}"`, campaignId: c.id }));
-
-    res.json({ success: true, alerts, timestamp: new Date().toISOString() });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message, alerts });
-  }
-});
-
-// ═══════════════════════════════
-// СТАРТ
-// ═══════════════════════════════
-
+// ── Start ────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`
-  ╔══════════════════════════════════════════╗
-  ║   Prom3D + Mercato Ads Agent Server v4   ║
-  ║   Running on port ${PORT}                   ║
-  ╚══════════════════════════════════════════╝
-  `);
-});
-
+app.listen(PORT, () => console.log(`Prom3D Ads Agent v5 — port ${PORT}`));
 module.exports = app;
