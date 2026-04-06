@@ -147,15 +147,15 @@ app.get('/api/ga4/prom3d', async (req, res) => {
 app.get('/api/ads/metrics', async (req, res) => {
   try {
     const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID);
-    const rows = await c.query(`SELECT campaign.id,campaign.name,campaign.status,metrics.impressions,metrics.clicks,metrics.ctr,metrics.conversions,metrics.cost_micros,metrics.average_cpc FROM campaign WHERE segments.date DURING LAST_7_DAYS AND campaign.status='ENABLED' ORDER BY metrics.impressions DESC LIMIT 10`);
-    res.json({success:true, shop:'prom3d', data:rows.map(r=>({id:r.campaign.id, name:r.campaign.name, impressions:r.metrics.impressions, clicks:r.metrics.clicks, ctr:(r.metrics.ctr*100).toFixed(2), conversions:r.metrics.conversions, cost:(r.metrics.cost_micros/1e6).toFixed(2), avgCpc:(r.metrics.average_cpc/1e6).toFixed(2)}))});
+    const rows = await c.query(`SELECT campaign.id,campaign.name,campaign.status,metrics.impressions,metrics.clicks,metrics.ctr,metrics.conversions,metrics.cost_micros,metrics.average_cpc FROM campaign WHERE segments.date DURING LAST_30_DAYS ORDER BY metrics.impressions DESC LIMIT 10`);
+    res.json({success:true, shop:'prom3d', data:rows.map(r=>({id:r.campaign.id, name:r.campaign.name, status:r.campaign.status, impressions:r.metrics.impressions, clicks:r.metrics.clicks, ctr:(r.metrics.ctr*100).toFixed(2), conversions:r.metrics.conversions, cost:(r.metrics.cost_micros/1e6).toFixed(2), avgCpc:(r.metrics.average_cpc/1e6).toFixed(2)}))});
   } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
 app.get('/api/ads/search-terms', async (req, res) => {
   try {
     const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID);
-    const rows = await c.query(`SELECT search_term_view.search_term,metrics.impressions,metrics.clicks,metrics.conversions,metrics.cost_micros FROM search_term_view WHERE segments.date DURING LAST_7_DAYS AND metrics.impressions>5 ORDER BY metrics.impressions DESC LIMIT 50`);
+    const rows = await c.query(`SELECT search_term_view.search_term,metrics.impressions,metrics.clicks,metrics.conversions,metrics.cost_micros FROM search_term_view WHERE segments.date DURING LAST_30_DAYS AND metrics.impressions>5 ORDER BY metrics.impressions DESC LIMIT 50`);
     const minus = ['безкоштовно','free','diy','скачати','thingiverse','stl','курс','навчання'];
     res.json({success:true, shop:'prom3d', data:rows.map(r=>({term:r.search_term_view.search_term, impressions:r.metrics.impressions, clicks:r.metrics.clicks, conversions:r.metrics.conversions, cost:(r.metrics.cost_micros/1e6).toFixed(2), isSuggestedMinus:minus.some(m=>r.search_term_view.search_term.toLowerCase().includes(m))}))});
   } catch(err) { res.status(500).json({success:false, error:err.message}); }
@@ -181,15 +181,15 @@ app.post('/api/ads/add-negative-keywords', async (req, res) => {
 app.get('/api/mercato/ads/metrics', async (req, res) => {
   try {
     const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID_MERCATO);
-    const rows = await c.query(`SELECT campaign.id,campaign.name,campaign.status,metrics.impressions,metrics.clicks,metrics.ctr,metrics.conversions,metrics.cost_micros,metrics.average_cpc FROM campaign WHERE segments.date DURING LAST_7_DAYS AND campaign.status='ENABLED' ORDER BY metrics.impressions DESC LIMIT 10`);
-    res.json({success:true, shop:'mercato', data:rows.map(r=>({id:r.campaign.id, name:r.campaign.name, impressions:r.metrics.impressions, clicks:r.metrics.clicks, ctr:(r.metrics.ctr*100).toFixed(2), conversions:r.metrics.conversions, cost:(r.metrics.cost_micros/1e6).toFixed(2), avgCpc:(r.metrics.average_cpc/1e6).toFixed(2)}))});
+    const rows = await c.query(`SELECT campaign.id,campaign.name,campaign.status,metrics.impressions,metrics.clicks,metrics.ctr,metrics.conversions,metrics.cost_micros,metrics.average_cpc FROM campaign WHERE segments.date DURING LAST_30_DAYS ORDER BY metrics.impressions DESC LIMIT 10`);
+    res.json({success:true, shop:'mercato', data:rows.map(r=>({id:r.campaign.id, name:r.campaign.name, status:r.campaign.status, impressions:r.metrics.impressions, clicks:r.metrics.clicks, ctr:(r.metrics.ctr*100).toFixed(2), conversions:r.metrics.conversions, cost:(r.metrics.cost_micros/1e6).toFixed(2), avgCpc:(r.metrics.average_cpc/1e6).toFixed(2)}))});
   } catch(err) { res.status(500).json({success:false, error:err.message}); }
 });
 
 app.get('/api/mercato/ads/search-terms', async (req, res) => {
   try {
     const c = makeCustomer(CONFIG.ADS_CUSTOMER_ID_MERCATO);
-    const rows = await c.query(`SELECT search_term_view.search_term,metrics.impressions,metrics.clicks,metrics.conversions,metrics.cost_micros FROM search_term_view WHERE segments.date DURING LAST_7_DAYS AND metrics.impressions>5 ORDER BY metrics.impressions DESC LIMIT 50`);
+    const rows = await c.query(`SELECT search_term_view.search_term,metrics.impressions,metrics.clicks,metrics.conversions,metrics.cost_micros FROM search_term_view WHERE segments.date DURING LAST_30_DAYS AND metrics.impressions>5 ORDER BY metrics.impressions DESC LIMIT 50`);
     const minus = ['безкоштовно','free','diy','скачати'];
     res.json({success:true, shop:'mercato', data:rows.map(r=>({term:r.search_term_view.search_term, impressions:r.metrics.impressions, clicks:r.metrics.clicks, conversions:r.metrics.conversions, cost:(r.metrics.cost_micros/1e6).toFixed(2), isSuggestedMinus:minus.some(m=>r.search_term_view.search_term.toLowerCase().includes(m))}))});
   } catch(err) { res.status(500).json({success:false, error:err.message}); }
@@ -218,18 +218,21 @@ app.get('/api/ga4/metrics', async (req,res) => {
     res.json({success:true,shop:'prom3d',data:rows.map(r=>({channel:r.dimensionValues[0].value,sessions:r.metricValues[0].value,users:r.metricValues[1].value,bounceRate:(parseFloat(r.metricValues[2].value)*100).toFixed(1)+'%',avgDuration:Math.round(parseFloat(r.metricValues[3].value))+'с',conversions:r.metricValues[4].value,pagesPerSession:parseFloat(r.metricValues[5].value).toFixed(1)}))});
   } catch(err){res.status(500).json({success:false,error:err.message});}
 });
+
 app.get('/api/ga4/pages', async (req,res) => {
   try {
     const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID,[{name:'screenPageViews'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'}],[{name:'pagePath'}],[{metric:{metricName:'screenPageViews'},desc:true}],10,parsePeriod(req.query));
     res.json({success:true,shop:'prom3d',data:rows.map(r=>({page:r.dimensionValues[0].value,views:r.metricValues[0].value,bounceRate:(parseFloat(r.metricValues[1].value)*100).toFixed(1)+'%',avgDuration:Math.round(parseFloat(r.metricValues[2].value))+'с',conversions:r.metricValues[3].value}))});
   } catch(err){res.status(500).json({success:false,error:err.message});}
 });
+
 app.get('/api/mercato/ga4/metrics', async (req,res) => {
   try {
     const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID_MERCATO,[{name:'sessions'},{name:'activeUsers'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'},{name:'screenPageViewsPerSession'}],[{name:'sessionDefaultChannelGrouping'}],null,null,parsePeriod(req.query));
     res.json({success:true,shop:'mercato',data:rows.map(r=>({channel:r.dimensionValues[0].value,sessions:r.metricValues[0].value,users:r.metricValues[1].value,bounceRate:(parseFloat(r.metricValues[2].value)*100).toFixed(1)+'%',avgDuration:Math.round(parseFloat(r.metricValues[3].value))+'с',conversions:r.metricValues[4].value,pagesPerSession:parseFloat(r.metricValues[5].value).toFixed(1)}))});
   } catch(err){res.status(500).json({success:false,error:err.message});}
 });
+
 app.get('/api/mercato/ga4/pages', async (req,res) => {
   try {
     const rows = await ga4Report(CONFIG.GA4_PROPERTY_ID_MERCATO,[{name:'screenPageViews'},{name:'bounceRate'},{name:'averageSessionDuration'},{name:'conversions'}],[{name:'pagePath'}],[{metric:{metricName:'screenPageViews'},desc:true}],10,parsePeriod(req.query));
