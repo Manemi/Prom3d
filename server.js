@@ -256,6 +256,55 @@ app.get('/api/mercato/ga4/pages', async (req,res) => {
   } catch(err){res.status(500).json({success:false,error:err.message});}
 });
 
+
+// ── Fetch landing page content for AI analysis ───────────────
+app.get('/api/fetch-page', async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({success:false,error:'url required'});
+  try {
+    const r = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: {'User-Agent':'Mozilla/5.0 (compatible; AdsAgent/1.0)'}
+    });
+    const html = await r.text();
+    // Extract text content
+    const text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi,'')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi,'')
+      .replace(/<[^>]+>/g,' ')
+      .replace(/\s+/g,' ')
+      .trim()
+      .substring(0, 3000); // first 3000 chars
+    res.json({success:true, url, text});
+  } catch(err) {
+    res.status(500).json({success:false, error:err.message});
+  }
+});
+
+
+// ── Proxy: читати вміст сайту для ШІ аналізу ─────────────────
+app.get('/api/fetch-page', async (req, res) => {
+  const url = req.query.url;
+  if (!url) return res.status(400).json({success:false, error:'url required'});
+  try {
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: {'User-Agent':'Mozilla/5.0 (compatible; AdsIntelBot/1.0)'}
+    });
+    const html = await resp.text();
+    // Витягуємо текстовий контент без HTML тегів
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .substring(0, 3000)
+      .trim();
+    res.json({success:true, url, text});
+  } catch(err) {
+    res.status(500).json({success:false, error:err.message});
+  }
+});
 // ── Start ────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Prom3D Ads Agent v5 — port ${PORT}`));
