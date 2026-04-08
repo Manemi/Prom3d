@@ -309,3 +309,223 @@ app.get('/api/fetch-page', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Prom3D Ads Agent v5 — port ${PORT}`));
 module.exports = app;
+
+// ═══════════════════════════════════════════════════════════
+// CAMPAIGN MANAGER — повне управління з дашборду
+// ═══════════════════════════════════════════════════════════
+
+// Допоміжна функція для обох бізнесів
+function getCustomerId(biz) {
+  return biz === 'mercato' ? CONFIG.ADS_CUSTOMER_ID_MERCATO : CONFIG.ADS_CUSTOMER_ID;
+}
+
+// ── Отримати всі оголошення кампанії ─────────────────────
+async function getAds(biz) {
+  const c = makeCustomer(getCustomerId(biz));
+  return await c.query(`
+    SELECT ad_group_ad.ad.id, ad_group_ad.ad.responsive_search_ad.headlines,
+      ad_group_ad.ad.responsive_search_ad.descriptions,
+      ad_group_ad.status, ad_group.name, campaign.name, campaign.id,
+      metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions
+    FROM ad_group_ad
+    WHERE segments.date DURING LAST_30_DAYS
+      AND ad_group_ad.ad.type = 'RESPONSIVE_SEARCH_AD'
+      AND campaign.status != 'REMOVED'
+    ORDER BY metrics.impressions DESC LIMIT 20`);
+}
+
+app.get('/api/:biz/ads/list', async (req, res) => {
+  const biz = req.params.biz;
+  if (!['mercato','prom3d'].includes(biz)) return res.status(400).json({success:false,error:'invalid biz'});
+  try {
+    const rows = await getAds(biz);
+    const data = rows.map(r => ({
+      adId:         r.ad_group_ad?.ad?.id,
+      campaignId:   r.campaign?.id,
+      campaignName: r.campaign?.name,
+      adGroupName:  r.ad_group?.name,
+      status:       r.ad_group_ad?.status,
+      headlines: (r.ad_group_ad?.ad?.responsive_search_ad?.headlines||[])
+        .map(h=>({text:h.text, pinned:h.pinnedField})),
+      descriptions: (r.ad_group_ad?.ad?.responsive_search_ad?.descriptions||[])
+        .map(d=>({text:d.text, pinned:d.pinnedField})),
+      impressions:  r.metrics?.impressions,
+      clicks:       r.metrics?.clicks,
+      ctr:          (r.metrics?.ctr*100).toFixed(2),
+      conversions:  r.metrics?.conversions,
+    }));
+    res.json({success:true, data});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
+
+// ── Оновити заголовки та описи RSA ───────────────────────
+app.post('/api/:biz/ads/update-ad', async (req, res) => {
+  const biz = req.params.biz;
+  const { adId, campaignId, adGroupId, headlines, descriptions } = req.body;
+  if (!adId || !headlines?.length) return res.status(400).json({success:false,error:'adId and headlines required'});
+  try {
+    const customerId = getCustomerId(biz);
+    const c = makeCustomer(customerId);
+    await c.adGroupAds.update([{
+      resource_name: `customers/${customerId}/adGroupAds/${adGroupId}~${adId}`,
+      ad: {
+        responsive_search_ad: {
+          headlines:    headlines.map((t,i)=>({text:t,pinned_field:null})),
+          descriptions: descriptions.map((t,i)=>({text:t,pinned_field:null})),
+        }
+      }
+    }]);
+    res.json({success:true, message:'Оголошення оновлено'});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
+
+// ── Отримати ключові слова з деталями ────────────────────
+app.get('/api/:biz/ads/keywords-full', async (req, res) => {
+  const biz = req.params.biz;
+  try {
+    const c = makeCustomer(getCustomerId(biz));
+    const rows = await c.query(`
+      SELECT ad_group_criterion.criterion_id, ad_group_criterion.keyword.text,
+        ad_group_criterion.keyword.match_type, ad_group_criterion.status,
+        ad_group_criterion.cpc_bid_micros, ad_group_criterion.quality_info.quality_score,
+        ad_group_criterion.quality_info.creative_quality_score,
+        ad_group_criterion.quality_info.post_click_quality_score,
+        ad_group_criterion.quality_info.search_predicted_ctr,
+        campaign.id, campaign.name, ad_group.id, ad_group.name,
+        metrics.impressions, metrics.clicks, metrics.ctr, metrics.conversions,
+        metrics.cost_micros, metrics.average_cpc
+      FROM keyword_view
+      WHERE segments.date DURING LAST_30_DAYS
+        AND campaign.status != 'REMOVED'
+      ORDER BY metrics.impressions DESC LIMIT 50`);
+    const data = rows.map(r=>({
+      criterionId:  r.ad_group_criterion?.criterion_id,
+      keyword:      r.ad_group_criterion?.keyword?.text,
+      matchType:    r.ad_group_criterion?.keyword?.match_type,
+      status:       r.ad_group_criterion?.status,
+      bidMicros:    r.ad_group_criterion?.cpc_bid_micros,
+      bid:          (r.ad_group_criterion?.cpc_bid_micros/1e6).toFixed(2),
+      qs:           r.ad_group_criterion?.quality_info?.quality_score,
+      qsAd:         r.ad_group_criterion?.quality_info?.creative_quality_score,
+      qsLP:         r.ad_group_criterion?.quality_info?.post_click_quality_score,
+      qsCTR:        r.ad_group_criterion?.quality_info?.search_predicted_ctr,
+      campaignId:   r.campaign?.id,
+      campaignName: r.campaign?.name,
+      adGroupId:    r.ad_group?.id,
+      adGroupName:  r.ad_group?.name,
+      impressions:  r.metrics?.impressions,
+      clicks:       r.metrics?.clicks,
+      ctr:          (r.metrics?.ctr*100).toFixed(2),
+      conversions:  r.metrics?.conversions,
+      cost:         (r.metrics?.cost_micros/1e6).toFixed(2),
+      avgCpc:       (r.metrics?.average_cpc/1e6).toFixed(2),
+    }));
+    res.json({success:true, data});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
+
+// ── Змінити ставку ключового слова ───────────────────────
+app.post('/api/:biz/ads/update-bid', async (req, res) => {
+  const biz = req.params.biz;
+  const { criterionId, adGroupId, campaignId, newBidUah } = req.body;
+  if (!criterionId || !newBidUah) return res.status(400).json({success:false,error:'criterionId and newBidUah required'});
+  try {
+    const customerId = getCustomerId(biz);
+    const c = makeCustomer(customerId);
+    await c.adGroupCriteria.update([{
+      resource_name: `customers/${customerId}/adGroupCriteria/${adGroupId}~${criterionId}`,
+      cpc_bid_micros: Math.round(parseFloat(newBidUah) * 1e6),
+    }]);
+    res.json({success:true, message:`Ставку змінено → ₴${newBidUah}`});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
+
+// ── Пауза / активація ключового слова ────────────────────
+app.post('/api/:biz/ads/toggle-keyword', async (req, res) => {
+  const biz = req.params.biz;
+  const { criterionId, adGroupId, status } = req.body; // status: 'ENABLED' | 'PAUSED'
+  try {
+    const customerId = getCustomerId(biz);
+    const c = makeCustomer(customerId);
+    await c.adGroupCriteria.update([{
+      resource_name: `customers/${customerId}/adGroupCriteria/${adGroupId}~${criterionId}`,
+      status,
+    }]);
+    res.json({success:true, message:`Ключове слово ${status==='PAUSED'?'призупинено':'активовано'}`});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
+
+// ── Додати нові ключові слова ─────────────────────────────
+app.post('/api/:biz/ads/add-keywords', async (req, res) => {
+  const biz = req.params.biz;
+  const { adGroupId, keywords } = req.body;
+  // keywords: [{text, matchType, bidUah}]
+  if (!adGroupId || !keywords?.length) return res.status(400).json({success:false,error:'adGroupId and keywords required'});
+  try {
+    const customerId = getCustomerId(biz);
+    const c = makeCustomer(customerId);
+    const ops = keywords.map(k=>({
+      ad_group:      `customers/${customerId}/adGroups/${adGroupId}`,
+      status:        'ENABLED',
+      keyword:       { text: k.text, match_type: k.matchType||'BROAD' },
+      cpc_bid_micros: k.bidUah ? Math.round(parseFloat(k.bidUah)*1e6) : undefined,
+    }));
+    await c.adGroupCriteria.create(ops);
+    res.json({success:true, message:`Додано ${keywords.length} ключових слів`});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
+
+// ── Додати мінус-слова ────────────────────────────────────
+app.post('/api/:biz/ads/add-negatives', async (req, res) => {
+  const biz = req.params.biz;
+  const { campaignId, keywords } = req.body;
+  if (!campaignId || !keywords?.length) return res.status(400).json({success:false,error:'campaignId and keywords required'});
+  try {
+    const customerId = getCustomerId(biz);
+    const c = makeCustomer(customerId);
+    await c.campaignCriteria.create(
+      keywords.map(kw=>({
+        campaign: `customers/${customerId}/campaigns/${campaignId}`,
+        keyword:  { text: kw, match_type: 'BROAD' },
+      }))
+    );
+    res.json({success:true, message:`Додано ${keywords.length} мінус-слів`});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
+
+// ── Увімкнути кампанію ────────────────────────────────────
+app.post('/api/:biz/ads/enable-campaign', async (req, res) => {
+  const biz = req.params.biz;
+  const { campaignId } = req.body;
+  try {
+    const customerId = getCustomerId(biz);
+    const c = makeCustomer(customerId);
+    await c.campaigns.update([{
+      resource_name: `customers/${customerId}/campaigns/${campaignId}`,
+      status: 'ENABLED',
+    }]);
+    res.json({success:true, message:'Кампанію запущено'});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
+
+// ── Змінити бюджет кампанії ───────────────────────────────
+app.post('/api/:biz/ads/update-budget', async (req, res) => {
+  const biz = req.params.biz;
+  const { campaignId, budgetAmountMicros } = req.body;
+  if (!campaignId || !budgetAmountMicros) return res.status(400).json({success:false,error:'campaignId and budget required'});
+  try {
+    const customerId = getCustomerId(biz);
+    const c = makeCustomer(customerId);
+    // Спочатку отримуємо поточний budget resource name
+    const rows = await c.query(`
+      SELECT campaign.id, campaign_budget.resource_name, campaign_budget.amount_micros
+      FROM campaign WHERE campaign.id = ${campaignId}`);
+    const budgetRN = rows[0]?.campaign_budget?.resource_name;
+    if (!budgetRN) throw new Error('Budget not found');
+    await c.campaignBudgets.update([{
+      resource_name: budgetRN,
+      amount_micros: Math.round(budgetAmountMicros),
+    }]);
+    res.json({success:true, message:`Бюджет оновлено → ₴${(budgetAmountMicros/1e6).toFixed(0)}/день`});
+  } catch(err) { res.status(500).json({success:false, error:err.message}); }
+});
